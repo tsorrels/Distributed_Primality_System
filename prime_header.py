@@ -1,0 +1,2 @@
+PORT = 19043
+SERVER_TIMEOUT = 5 # in seconds

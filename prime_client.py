@@ -1,5 +1,6 @@
 import socket
 import select
+import math
 from config import *
 from enum import Enum
 
@@ -10,7 +11,7 @@ class Scheduler(Enum):
 
 
 class Chunk(object):
-    def __init__(self, index_in, start_in, end_in, server_in):
+    def __init__(self, start_in, end_in, server_in = None, index_in = None):
         self.index = index_in
         self.start = start_in
         self.end = end_in
@@ -46,7 +47,19 @@ class Solution(object):
 
 
     def buildChunks(self):
-        pass
+        numChunks = len(self.serverNames)
+        if (self.scheduler == Scheduler.dynamic):
+            numChunks = numChunks * CHUNK_FACTOR
+
+        rangeVal = math.ceil( (self.end - self.begin) / numChunks)
+
+        for i in range(0, numChunks):
+            chunkStart = int(self.begin + (i * rangeVal))
+            chunkEnd = chunkStart + rangeVal - 1
+            if (i == numChunks):
+                chunkEnd = self.end
+            #print("Chunk start, end ", chunkStart, chunkEnd)
+            self.chunks.append(Chunk(chunkStart, chunkEnd))
 
 
     def buildServers(self):
@@ -89,7 +102,7 @@ class Setup(object):
         else:
             print ("Not set - enter 'e' to set end of range")
 
-        print ("Scheduler: ", self.solution.scheduler)
+        print ("Scheduler: ", self.solution.scheduler.name)
 
 
 

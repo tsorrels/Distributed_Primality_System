@@ -1,7 +1,7 @@
 PORT = 19043
 SERVER_TIMEOUT = 5 # in seconds
 INT_SIZE = 4
-
+CHUNK_FACTOR = 5
 
 
 

@@ -3,70 +3,54 @@ import multiprocessing
 import socket
 import json
 import select
-import struct
 #from enum import Enum
 
 
+class ServerSolution(object):
+    def __init__(self, begin_in, end_in):
+        self.begin = begin_in
+        self.end = end_in
+        self.primes = []
 
-class MessageType(object):
-    progress = 1
-    begin = 2
-    result = 3
-
-
-class Message(object):
-    def __init__(self, in_type = None, in_data = '', in_length = 0):
-        __type__ = 'Message'
-        message_type = in_type
-        data = in_data
-        length = in_length
-
-# taken from http://stackoverflow.com/questions/6578986/
-# how-to-convert-json-data-into-a-python-object
-def MessageDecoder(obj):
-    if '__type__' in obj and obj['__type__'] == 'Message':
-        return Message(obj['message_type'], obj['data'], obj['length'])
-    # throw exception
-    return obj
+    def findPrimes(self):
+        print("Searching for primes between",self.begin, "and", self.end)
+        self.primes.append(1)
+        self.primes.append(3)
 
 
+def processMessage(message, clientSocket):
+    if message.message_type == "begin":
+        solution = ServerSolution(message.data[0], message.data[1])
+        solution.findPrimes()
+        solutionMessage = Message("solution", solution.primes)
+        print ("Returning solution", solution.primes)
+        mess = MessageEncoder().encode(solutionMessage)
+        sendMessage(clientSocket, mess)      
 
-def recvMessage(socket):
-    raw_mess_len = recvLength(socket, INT_SIZE)
-    mess_len = struct.unpack('>I', raw_mess_len)[0]
-    message = recvLength(socket, mess_len)
-    messageObject = json.loads(message, object_hook = MessageDecoder)
-    return messageObject
-
-def recvLength(socket, length):
-    data = ''
-    while len(data) < length:
-        packet = socket.recv(length - len(data))
-        if not packet:
-            # throw exception
-            break
-        data += packet
-    return data
-
+    else:
+        print("received message other than type 'begin'")
 
 
 def main():
-    print "running in main"
-
     run = True
+
+    print(PORT)
 
     # set up server socket-
     serversocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    serversocket.bind((socket.gethostname(), PORT))
+    #serversocket.bind((socket.gethostname(), PORT))
+    serversocket.bind(('', PORT))
     serversocket.listen(5)
 
     while(run):
+        (clientSocket, address) = serversocket.accept()
         ready_to_read, ready_to_write, error = \
-                select.select ([serversocket], [], [])
+                select.select ([clientSocket], [], [])
 
         if (ready_to_read):
-            message = recvMessage
-            print "received message " + message
+            message = recvMessage(clientSocket)
+            print ("received message ", message)
+            processMessage(message, clientSocket)
 
 
 if __name__ == "__main__":

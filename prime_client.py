@@ -1,8 +1,9 @@
+import json
 import socket
 import select
 import math
+import struct
 from config import *
-from enum import Enum
 
 
 class Scheduler(Enum):
@@ -11,12 +12,13 @@ class Scheduler(Enum):
 
 
 class Chunk(object):
-    def __init__(self, start_in, end_in, server_in = None, index_in = None):
+    def __init__(self, start_in, end_in, index_in = None, server_in = None):
         self.index = index_in
         self.start = start_in
         self.end = end_in
         self.server = server_in
-        self.complete = 0
+        self.scheduled = False
+        self.complete = True
 
 class Server(object):
     def __init__(self, serverName, chunk):
@@ -27,6 +29,8 @@ class Server(object):
         self.complete = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
+            print("connecting to", end = " ")
+            print (serverName)
             self.socket.connect((serverName, PORT))
             self.connected = True
         except socket.error:
@@ -35,12 +39,11 @@ class Server(object):
 
 class Solution(object):
     def __init__(self):
-        print("ran Solution init")
         self.primes = []
-        self.begin = None
-        self.end = None
+        self.begin = 113#None
+        self.end = 11232134257#None
         self.chunks = []
-        self.serverNames = []
+        self.serverNames = ['localhost']
         self.servers = []
         self.progress = []
         self.scheduler = Scheduler.dynamic
@@ -56,10 +59,10 @@ class Solution(object):
         for i in range(0, numChunks):
             chunkStart = int(self.begin + (i * rangeVal))
             chunkEnd = chunkStart + rangeVal - 1
-            if (i == numChunks):
+            if (i == numChunks - 1):
                 chunkEnd = self.end
             #print("Chunk start, end ", chunkStart, chunkEnd)
-            self.chunks.append(Chunk(chunkStart, chunkEnd))
+            self.chunks.append(Chunk(chunkStart, chunkEnd, i))
 
 
     def buildServers(self):
@@ -69,7 +72,26 @@ class Solution(object):
             self.servers.append(server)
 
     def initiate(self):
-        pass
+        for i in range (0, len(self.servers)):
+            currentChunk = self.chunks[i]
+            # assign first chunk to server
+            self.servers[i].currentChunk = currentChunk
+
+            # craft start message
+            #messObj = Message(MessageType.begin, [currentChunk.start,
+            #                                      currentChunk.end] )
+
+            messObj = Message("begin", [currentChunk.start,
+                                                  currentChunk.end] )
+
+
+            # send start message
+            #jsonString = json.dumps(messObj, default=lambda o: o.__dict__,
+            #                        sort_keys=True)
+            jsonString = MessageEncoder().encode(messObj)
+            print(jsonString)
+            #length = len(jsonString)
+            sendMessage(self.servers[i].socket, jsonString)
 
 
 
@@ -184,9 +206,25 @@ class Setup(object):
         self.finished = True
 
     
+def processMessage(message, solution):
+    print ("received message ", message)
+
+    if message.message_type == 'solution':
+        for prime in message.data:
+            solution.primes.append(prime)
+        for chunk in solution.chunks:
+            if chunk.index == message.chunkID:
+                chunk.complete = True
+                break
+        
+    else:
+        print ("received message other than solution ")
 
 def main():
+    sockets = []
+
     print ("running in main")
+
 
     complete = False
 
@@ -199,8 +237,21 @@ def main():
     solutionObject.buildServers()
     solutionObject.initiate()
 
+    for server in solutionObject.servers:
+        sockets.append(server.socket)
+
+    print ("Running")
+
     while not complete:
-        pass
+        ready_to_read, ready_to_write, error = \
+                select.select (sockets, [], [])
+
+        if (ready_to_read):
+            for socket in ready_to_read:
+                message = recvMessage(socket)
+                processMessage(message)
+
+
 
     # create as many sockets as necessary
 

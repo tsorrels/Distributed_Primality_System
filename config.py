@@ -10,6 +10,10 @@ INT_SIZE = 4
 CHUNK_FACTOR = 5
 
 
+class ServerStatus(Enum):
+    idle = 1
+    working = 2
+
 
 class MessageType(Enum):
     progress = 1

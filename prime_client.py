@@ -22,10 +22,12 @@ class Chunk(object):
 
 class Server(object):
     def __init__(self, serverName, chunk):
+        self.status = ServerStatus.idle
         self.connected = False
         self.name = serverName
         self.socket = None
         self.currentChunk = chunk
+        self.currentChunkID = -1
         self.complete = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
@@ -47,6 +49,20 @@ class Solution(object):
         self.servers = []
         self.progress = []
         self.scheduler = Scheduler.dynamic
+
+
+    def checkCompletion(self):
+        returnValue = True
+        for chunk in self.chunks:
+            if chunk.complete == False:
+                returnValue = False
+        return returnValue
+
+    def printSolution(self):
+        print("Computation complete")
+        print("Primes in range", self.begin, "and", self.end, ":")
+        print(self.primes)
+              
 
 
     def buildChunks(self):
@@ -81,8 +97,9 @@ class Solution(object):
             #messObj = Message(MessageType.begin, [currentChunk.start,
             #                                      currentChunk.end] )
 
-            messObj = Message("begin", [currentChunk.start,
-                                                  currentChunk.end] )
+            messObj = Message("begin", (currentChunk.start,
+                                        currentChunk.end,
+                                        currentChunk.index))
 
 
             # send start message
@@ -209,13 +226,26 @@ class Setup(object):
 def processMessage(message, solution):
     print ("received message ", message)
 
+    # update solution and servers
     if message.message_type == 'solution':
+        # add primes to solution
         for prime in message.data:
             solution.primes.append(prime)
+        # mark chunks as complete
         for chunk in solution.chunks:
             if chunk.index == message.chunkID:
                 chunk.complete = True
                 break
+        # mark server as idle
+        for server in solution.servers:
+            if server.currentChunkID == message.chunkID:
+                server.status = ServerStatus.idle
+                break
+
+        # check for completion
+        if solution.checkCompletion():
+            solution.printSolution()
+
         
     else:
         print ("received message other than solution ")
@@ -249,8 +279,8 @@ def main():
         if (ready_to_read):
             for socket in ready_to_read:
                 message = recvMessage(socket)
-                processMessage(message)
-
+                processMessage(message, solutionObject)
+                complete = solutionObject.checkCompletion()
 
 
     # create as many sockets as necessary

@@ -7,10 +7,12 @@ import select
 
 
 class ServerSolution(object):
-    def __init__(self, begin_in, end_in):
+    def __init__(self, begin_in, end_in, chunkID_in):
         self.begin = begin_in
         self.end = end_in
+        self.chunkID = chunkID_in
         self.primes = []
+        
 
     def findPrimes(self):
         print("Searching for primes between",self.begin, "and", self.end)
@@ -20,9 +22,11 @@ class ServerSolution(object):
 
 def processMessage(message, clientSocket):
     if message.message_type == "begin":
-        solution = ServerSolution(message.data[0], message.data[1])
+        solution = ServerSolution(message.data[0], message.data[1], 
+                                  message.data[2])
         solution.findPrimes()
         solutionMessage = Message("solution", solution.primes)
+        solutionMessage.chunkID = solution.chunkID
         print ("Returning solution", solution.primes)
         mess = MessageEncoder().encode(solutionMessage)
         sendMessage(clientSocket, mess)      

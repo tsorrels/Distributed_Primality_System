@@ -3,6 +3,8 @@ import socket
 import select
 import math
 import struct
+import time
+import sys
 from config import *
 
 
@@ -18,7 +20,9 @@ class Chunk(object):
         self.end = end_in
         self.server = server_in
         self.scheduled = False
-        self.complete = True
+        self.complete = False
+        self.timeStart = None
+        self.timeFinish = None
 
 class Server(object):
     def __init__(self, serverName, chunk):
@@ -30,36 +34,55 @@ class Server(object):
         self.currentChunkID = -1
         self.complete = False
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+    def connect(self):
         try:
             print("connecting to", end = " ")
-            print (serverName)
-            self.socket.connect((serverName, PORT))
+            print (self.name)
+            self.socket.connect((self.name, PORT))
             self.connected = True
         except socket.error:
-            print(serverName + " refused connection, removing from servers")
+            print(self.name + " refused connection, removing from servers")
+            return False
+        return True
             
 
 class Solution(object):
     def __init__(self):
         self.primes = []
-        self.begin = 113#None
-        self.end = 11232134257#None
+        self.begin = 100000#None
+        self.end = 110000#None
         self.chunks = []
-        self.serverNames = ['localhost']
+        self.serverNames = []
         self.servers = []
         self.progress = []
         self.scheduler = Scheduler.dynamic
+        self.timeStart = None 
+        self.timeFinish = None
 
+
+    def getNextChunk(self):
+        for chunk in self.chunks:
+            if chunk.scheduled == False:
+                return chunk
+        return False
 
     def checkCompletion(self):
         returnValue = True
         for chunk in self.chunks:
             if chunk.complete == False:
                 returnValue = False
+                break;
         return returnValue
 
+
     def printSolution(self):
+        self.primes.sort()
         print("Computation complete")
+        print ("Elapsed time:", "{0:.2f}".format(
+            self.timeFinish - self.timeStart), 
+               "seconds")
+
         print("Primes in range", self.begin, "and", self.end, ":")
         print(self.primes)
               
@@ -85,29 +108,29 @@ class Solution(object):
         for serverName in self.serverNames:
             newChunk = Chunk(None, None, None, None)
             server = Server(serverName, newChunk)
-            self.servers.append(server)
+            if server.connect():
+                self.servers.append(server)
 
     def initiate(self):
+        #print (len(self.servers))
+        self.timeStart = time.time()
         for i in range (0, len(self.servers)):
             currentChunk = self.chunks[i]
             # assign first chunk to server
             self.servers[i].currentChunk = currentChunk
+            print ("sending server",i, "chunk index",i)
 
-            # craft start message
-            #messObj = Message(MessageType.begin, [currentChunk.start,
-            #                                      currentChunk.end] )
 
             messObj = Message("begin", (currentChunk.start,
-                                        currentChunk.end,
-                                        currentChunk.index))
-
-
-            # send start message
-            #jsonString = json.dumps(messObj, default=lambda o: o.__dict__,
-            #                        sort_keys=True)
+                                        currentChunk.end), 
+                              currentChunk.index)
             jsonString = MessageEncoder().encode(messObj)
-            print(jsonString)
+            #print(jsonString)
             #length = len(jsonString)
+
+            # mark chunk as scheduled
+            currentChunk.scheduled = True
+            currentChunk.timeStart = time.time()
             sendMessage(self.servers[i].socket, jsonString)
 
 
@@ -223,11 +246,22 @@ class Setup(object):
         self.finished = True
 
     
-def processMessage(message, solution):
-    print ("received message ", message)
+def processMessage(message, solution, socket):
+    serverIndex = -1
+
+    for i in range(0, len(solution.servers)):
+        if solution.servers[i].socket == socket:
+            serverIndex = i
+            break
+
+    if serverIndex == -1:
+        # raise exception
+        print ("Could not map socket to a server in processMessage")
+
 
     # update solution and servers
     if message.message_type == 'solution':
+
         # add primes to solution
         for prime in message.data:
             solution.primes.append(prime)
@@ -235,6 +269,12 @@ def processMessage(message, solution):
         for chunk in solution.chunks:
             if chunk.index == message.chunkID:
                 chunk.complete = True
+                chunk.timeFinish = time.time()
+
+                print ("received solution from server", serverIndex,"for chunk",                       message.chunkID, "in", "{0:.2f}".format(
+                           chunk.timeFinish - chunk.timeStart), 
+                       "s; primes:", message.data)
+
                 break
         # mark server as idle
         for server in solution.servers:
@@ -242,13 +282,39 @@ def processMessage(message, solution):
                 server.status = ServerStatus.idle
                 break
 
-        # check for completion
-        if solution.checkCompletion():
+        # send next chunk
+        nextChunk = solution.getNextChunk()
+        if nextChunk:
+            messObj = Message("begin", (nextChunk.start,
+                                        nextChunk.end),
+                              nextChunk.index)
+
+            jsonString = MessageEncoder().encode(messObj)
+            #print(jsonString)
+
+            print ("sending server", serverIndex, "chunk index",nextChunk.index)
+
+            # mark chunk as scheduled
+            nextChunk.scheduled = True
+            nextChunk.timeStart = time.time()
+
+            sendMessage(socket, jsonString)          
+
+        elif solution.checkCompletion():
+            solution.timeFinish = time.time()
             solution.printSolution()
 
         
     else:
         print ("received message other than solution ")
+
+
+def loadServersFromFile(path, solution):
+    f = open(path, 'r')
+    for line in f:
+        solution.serverNames.append(line.rstrip('\n'))
+
+    
 
 def main():
     sockets = []
@@ -259,6 +325,8 @@ def main():
     complete = False
 
     solutionObject = Solution()
+    if (len(sys.argv) == 2):
+        loadServersFromFile(sys.argv[1], solutionObject)
     setupObject = Setup(solutionObject)
     setupObject.getInput()
     
@@ -270,8 +338,6 @@ def main():
     for server in solutionObject.servers:
         sockets.append(server.socket)
 
-    print ("Running")
-
     while not complete:
         ready_to_read, ready_to_write, error = \
                 select.select (sockets, [], [])
@@ -279,14 +345,8 @@ def main():
         if (ready_to_read):
             for socket in ready_to_read:
                 message = recvMessage(socket)
-                processMessage(message, solutionObject)
+                processMessage(message, solutionObject, socket)
                 complete = solutionObject.checkCompletion()
-
-
-    # create as many sockets as necessary
-
-    # chop up pieces, make solution object
-
 
 
 if __name__ == "__main__":
